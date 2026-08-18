@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Voxel Engine - Camera Controls</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #87CEEB; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        #instructions {
+            position: absolute; top: 10px; left: 10px;
+            color: white; font-family: sans-serif; background: rgba(0,0,0,0.5);
+            padding: 10px; border-radius: 5px; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">
+        <strong>Controls:</strong><br>
+        Move: W, A, S, D<br>
+        Look Around: Arrow Keys
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        // --- STEP 1: INITIALIZE WEBGL ---
+        const canvas = document.getElementById('gameCanvas');
+        const gl = canvas.getContext('webgl');
+        if (!gl) alert('WebGL not supported!');
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- STEP 2: SHADERS ---
+        const vsSource = `
+            attribute vec4 aPosition;
+            attribute vec4 aColor;
+            varying lowp vec4 vColor;
+            uniform mat4 uViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            void main() {
+                gl_Position = uProjectionMatrix * uViewMatrix * aPosition;
+                vColor = aColor;
+            }
+        `;
+        const fsSource = `varying lowp vec4 vColor; void main() { gl_FragColor = vColor; }`;
+
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+        const shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, loadShader(gl, gl.VERTEX_SHADER, vsSource));
+        gl.attachShader(shaderProgram, loadShader(gl, gl.FRAGMENT_SHADER, fsSource));
+        gl.linkProgram(shaderProgram);
+        gl.useProgram(shaderProgram);
+
+        const programInfo = {
+            attribLocations: { position: gl.getAttribLocation(shaderProgram, 'aPosition'), color: gl.getAttribLocation(shaderProgram, 'aColor') },
+            uniformLocations: { projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'), viewMatrix: gl.getUniformLocation(shaderProgram, 'uViewMatrix') }
+        };
+
+        // --- STEP 3: CUBE GEOMETRY DATA ---
+        const positions = [
+            -0.5,-0.5, 0.5,  0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5, // Front
+            -0.5,-0.5,-0.5, -0.5, 0.5,-0.5,  0.5, 0.5,-0.5,  0.5,-0.5,-0.5, // Back
+            -0.5, 0.5,-0.5, -0.5, 0.5, 0.5,  0.5, 0.5, 0.5,  0.5, 0.5,-0.5, // Top
+            -0.5,-0.5,-0.5,  0.5,-0.5,-0.5,  0.5,-0.5, 0.5, -0.5,-0.5, 0.5, // Bottom
+             0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5, 0.5, 0.5,  0.5,-0.5, 0.5, // Right
+            -0.5,-0.5,-0.5, -0.5,-0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5,-0.5, // Left
+        ];
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+        const faceColors = [
+            [0.5, 0.3, 0.1, 1.0], [0.5, 0.3, 0.1, 1.0], // Front, Back (Dirt)
+            [0.2, 0.8, 0.2, 1.0], [0.4, 0.2, 0.1, 1.0], // Top (Grass), Bottom (Dark Dirt)
+            [0.5, 0.3, 0.1, 1.0], [0.5, 0.3, 0.1, 1.0]  // Right, Left (Dirt)
+        ];
+        let colors = [];
+        for (let c of faceColors) { colors = colors.concat(c, c, c, c); }
+        const colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+
+        const indices = [
+            0,1,2, 0,2,3, 4,5,6, 4,6,7, 8,9,10, 8,10,11,
+            12,13,14, 12,14,15, 16,17,18, 16,18,19, 20,21,22, 20,22,23
+        ];
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+        // --- STEP 4: CAMERA STATE & MATH LOGIC ---
+        let camX = 0, camY = 0, camZ = 4; // Start back a bit from the block
+        let yaw = -Math.PI / 2;           // Look straight forward down the Z axis
+        let pitch = 0;                    // Look level horizontally
+
+        const keys = {};
+        window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+        window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+        function updateCamera() {
+            const moveSpeed = 0.08;
+            const lookSpeed = 0.03;
+
+            // Handle looking around with Arrow Keys
+            if (keys['arrowleft'])  yaw -= lookSpeed;
+            if (keys['arrowright']) yaw += lookSpeed;
+            if (keys['arrowup'])    pitch = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, pitch + lookSpeed));
+            if (keys['arrowdown'])  pitch = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, pitch - lookSpeed));
+
+            // Calculate directional vectors based on look angle
+            const forwardX = Math.cos(yaw) * Math.cos(pitch);
+            const forwardZ = Math.sin(yaw) * Math.cos(pitch);
+            
+            // Side vector calculation
+            const rightX = -Math.sin(yaw);
+            const rightZ = Math.cos(yaw);
+
+            // Handle moving around with WASD
+            if (keys['w']) { camX += forwardX * moveSpeed; camZ += forwardZ * moveSpeed; }
+            if (keys['s']) { camX -= forwardX * moveSpeed; camZ -= forwardZ * moveSpeed; }
+            if (keys['a']) { camX -= rightX * moveSpeed;   camZ -= rightZ * moveSpeed; }
+            if (keys['d']) { camX += rightX * moveSpeed;   camZ += rightZ * moveSpeed; }
+        }
+
+        // Helper Matrix Functions
+        function makePerspective(fov, aspect, near, far) {
+            const f = 1.0 / Math.tan(fov / 2);
+            return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)/(near-far),-1, 0,0,(2*far*near)/(near-far),0];
+        }
+
+        function makeLookAt(px, py, pz, targetX, targetY, targetZ) {
+            // Forward vector
+            let fx = targetX - px, fy = targetY - py, fz = targetZ - pz;
+            let r_f = 1 / Math.sqrt(fx*fx + fy*fy + fz*fz); fx *= r_f; fy *= r_f; fz *= r_f;
+            // Right vector
+            let rx = fz, ry = 0, rz = -fx; 
+            let r_r = 1 / Math.sqrt(rx*rx + ry*ry + rz*rz); rx *= r_r; ry *= r_r; rz *= r_r;
+            // Up vector
+            let ux = fy*rz - fz*ry, uy = fz*rx - fx*rz, uz = fx*ry - fy*rx;
+
+            return [
+                rx, ux, -fx, 0,
+                ry, uy, -fy, 0,
+                rz, uz, -fz, 0,
+                -(rx*px + ry*py + rz*pz), -(ux*px + uy*py + uz*pz), (fx*px + fy*py + fz*pz), 1
+            ];
+        }
+
+        // --- STEP 5: THE ENGINE LOOP ---
+        function render() {
+            updateCamera();
+
+            gl.clearColor(0.53, 0.81, 0.92, 1.0);
+            gl.clearDepth(1.0);
+            gl.enable(gl.DEPTH_TEST);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            // Compute projection
+            const projectionMatrix = makePerspective(45 * Math.PI / 180, canvas.width / canvas.height, 0.1, 100.0);
+
+            // Compute look targets based on angle
+            const lookX = camX + Math.cos(yaw) * Math.cos(pitch);
+            const lookY = camY + Math.sin(pitch);
+            const lookZ = camZ + Math.sin(yaw) * Math.cos(pitch);
+            
+            // Build View Matrix
+            const viewMatrix = makeLookAt(camX, camY, camZ, lookX, lookY, lookZ);
+
+            // Bind geometric data buffers
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(programInfo.attribLocations.position, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(programInfo.attribLocations.position);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.vertexAttribPointer(programInfo.attribLocations.color, 4, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(programInfo.attribLocations.color);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
+            // Pass matrices to shaders
+            gl.uniformMatrix4fv(programInfo.uniformLocations.projectionMatrix, false, projectionMatrix);
+            gl.uniformMatrix4fv(programInfo.uniformLocations.viewMatrix, false, viewMatrix);
+
+            gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+
+            requestAnimationFrame(render);
+        }
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>

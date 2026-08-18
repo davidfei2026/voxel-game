@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voxel World V2</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #87ceeb;
+      font-family: Arial, sans-serif;
+    }
+
+    #game {
+      width: 100%;
+      height: 100%;
+    }
+
+    #crosshair {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 25px;
+      font-weight: bold;
+      text-shadow: 0 0 4px black;
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    #info {
+      position: fixed;
+      top: 15px;
+      left: 15px;
+      padding: 12px 15px;
+      background: rgba(0, 0, 0, 0.55);
+      color: white;
+      border-radius: 8px;
+      line-height: 1.5;
+      z-index: 20;
+    }
+
+    #hotbar {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 5px;
+      padding: 7px;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 8px;
+      z-index: 20;
+    }
+
+    .slot {
+      width: 58px;
+      height: 58px;
+      border: 3px solid #555;
+      background: #222;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 13px;
+      position: relative;
+    }
+
+    .slot.selected {
+      border-color: white;
+      box-shadow: 0 0 0 2px #ffd700;
+    }
+
+    .block-icon {
+      width: 32px;
+      height: 32px;
+    }
+
+    .grass-icon {
+      background: #4caf50;
+    }
+
+    .dirt-icon {
+      background: #8b5a2b;
+    }
+
+    .stone-icon {
+      background: #777;
+    }
+
+    .wood-icon {
+      background: #8b4513;
+    }
+  </style>
+</head>
+
+<body>
+
+<div id="game"></div>
+
+<div id="crosshair">+</div>
+
+<div id="info">
+  <b>Voxel World V2</b><br>
+  WASD = Move<br>
+  Space = Jump<br>
+  Left Click = Break<br>
+  Right Click = Place<br>
+  1–4 = Select Block
+</div>
+
+<div id="hotbar">
+
+  <div class="slot selected" data-slot="1">
+    <div class="block-icon grass-icon"></div>
+  </div>
+
+  <div class="slot" data-slot="2">
+    <div class="block-icon dirt-icon"></div>
+  </div>
+
+  <div class="slot" data-slot="3">
+    <div class="block-icon stone-icon"></div>
+  </div>
+
+  <div class="slot" data-slot="4">
+    <div class="block-icon wood-icon"></div>
+  </div>
+
+</div>
+
+<script type="module">
+
+import * as THREE from
+"https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js";
+
+
+// =====================================================
+// SCENE
+// =====================================================
+
+const scene = new THREE.Scene();
+
+scene.background =
+  new THREE.Color(0x87ceeb);
+
+
+// =====================================================
+// CAMERA
+// =====================================================
+
+const camera =
+  new THREE.PerspectiveCamera(
+    75,
+    window.innerWidth /
+    window.innerHeight,
+    0.1,
+    1000
+  );
+
+
+// =====================================================
+// RENDERER
+// =====================================================
+
+const renderer =
+  new THREE.WebGLRenderer({
+    antialias: true
+  });
+
+renderer.setSize(
+  window.innerWidth,
+  window.innerHeight
+);
+
+renderer.setPixelRatio(
+  Math.min(
+    window.devicePixelRatio,
+    2
+  )
+);
+
+document
+  .getElementById("game")
+  .appendChild(renderer.domElement);
+
+
+// =====================================================
+// LIGHT
+// =====================================================
+
+const sunlight =
+  new THREE.DirectionalLight(
+    0xffffff,
+    2
+  );
+
+sunlight.position.set(
+  10,
+  20,
+  10
+);
+
+scene.add(sunlight);
+
+
+const ambientLight =
+  new THREE.AmbientLight(
+    0xffffff,
+    0.6
+  );
+
+scene.add(ambientLight);
+
+
+// =====================================================
+// BLOCK MATERIALS
+// =====================================================
+
+const materials = {
+
+  grass:
+    new THREE.MeshLambertMaterial({
+      color: 0x4caf50
+    }),
+
+  dirt:
+    new THREE.MeshLambertMaterial({
+      color: 0x8b5a2b
+    }),
+
+  stone:
+    new THREE.MeshLambertMaterial({
+      color: 0x777777
+    }),
+
+  wood:
+    new THREE.MeshLambertMaterial({
+      color: 0x8b4513
+    }),
+
+  leaves:
+    new THREE.MeshLambertMaterial({
+      color: 0x228b22
+    })
+
+};
+
+
+// =====================================================
+// BLOCK GEOMETRY
+// =====================================================
+
+const blockGeometry =
+  new THREE.BoxGeometry(
+    1,
+    1,
+    1
+  );
+
+
+// =====================================================
+// WORLD
+// =====================================================
+
+const world = [];
+
+
+// =====================================================
+// ADD BLOCK
+// =====================================================
+
+function addBlock(
+  x,
+  y,
+  z,
+  type
+) {
+
+  const block =
+    new THREE.Mesh(
+      blockGeometry,
+      materials[type]
+    );
+
+  block.position.set(
+    x,
+    y,
+    z
+  );
+
+  block.userData.type =
+    type;
+
+  scene.add(block);
+
+  world.push(block);
+
+  return block;
+}
+
+
+// =====================================================
+// CREATE GROUND
+// =====================================================
+
+for (
+  let x = -10;
+  x <= 10;
+  x++
+) {
+
+  for (
+    let z = -10;
+    z <= 10;
+    z++
+  ) {
+
+    addBlock(
+      x,
+      0,
+      z,
+      "grass"
+    );
+
+    addBlock(
+      x,
+      -1,
+      z,
+      "dirt"
+    );
+
+    addBlock(
+      x,
+      -2,
+      z,
+      "stone"
+    );
+
+  }
+
+}
+
+
+// =====================================================
+// TREES
+// =====================================================
+
+function createTree(
+  x,
+  z
+) {
+
+  for (
+    let y = 1;
+    y <= 4;
+    y++
+  ) {
+
+    addBlock(
+      x,
+      y,
+      z,
+      "wood"
+    );
+
+  }
+
+
+  for (
+    let x2 = -1;
+    x2 <= 1;
+    x2++
+  ) {
+
+    for (
+      let z2 = -1;
+      z2 <= 1;
+      z2++
+    ) {
+
+      addBlock(
+        x + x2,
+        5,
+        z + z2,
+        "leaves"
+      );
+
+    }
+
+  }
+
+}
+
+
+createTree(-5, -4);
+createTree(5, -5);
+createTree(4, 5);
+
+
+// =====================================================
+// PLAYER
+// =====================================================
+
+const player = {
+
+  position:
+    new THREE.Vector3(
+      0,
+      2,
+      5
+    ),
+
+  velocity:
+    new THREE.Vector3(),
+
+  speed: 5,
+
+  jumpPower: 8,
+
+  onGround: false
+
+};
+
+
+camera.position.copy(
+  player.position
+);
+
+
+// =====================================================
+// KEYBOARD
+// =====================================================
+
+const keys = {};
+
+window.addEventListener(
+  "keydown",
+  event => {
+
+    keys[event.code] = true;
+
+
+    if (
+      event.code === "Space" &&
+      player.onGround
+    ) {
+
+      player.velocity.y =
+        player.jumpPower;
+
+      player.onGround =
+        false;
+
+    }
+
+
+    // Block selection
+
+    if (
+      event.code === "Digit1"
+    ) {
+
+      selectBlock(1);
+
+    }
+
+    if (
+      event.code === "Digit2"
+    ) {
+
+      selectBlock(2);
+
+    }
+
+    if (
+      event.code === "Digit3"
+    ) {
+
+      selectBlock(3);
+
+    }
+
+    if (
+      event.code === "Digit4"
+    ) {
+
+      selectBlock(4);
+
+    }
+
+  }
+);
+
+
+window.addEventListener(
+  "keyup",
+  event => {
+
+    keys[event.code] =
+      false;
+
+  }
+);
+
+
+// =====================================================
+// MOUSE LOOK
+// =====================================================
+
+let yaw = 0;
+let pitch = 0;
+
+
+document.body.addEventListener(
+  "click",
+  () => {
+
+    if (
+      document.pointerLockElement !==
+      document.body
+    ) {
+
+      document.body.requestPointerLock();
+
+    }
+
+  }
+);
+
+
+document.addEventListener(
+  "mousemove",
+  event => {
+
+    if (
+      document.pointerLockElement !==
+      document.body
+    ) {
+
+      return;
+
+    }
+
+
+    yaw -=
+      event.movementX *
+      0.002;
+
+    pitch -=
+      event.movementY *
+      0.002;
+
+
+    pitch =
+      Math.max(
+        -Math.PI / 2,
+        Math.min(
+          Math.PI / 2,
+          pitch
+        )
+      );
+
+  }
+);
+
+
+// =====================================================
+// RAYCASTER
+// =====================================================
+
+const raycaster =
+  new THREE.Raycaster();
+
+
+// =====================================================
+// BLOCK OUTLINE
+// =====================================================
+
+const outlineGeometry =
+  new THREE.BoxGeometry(
+    1.02,
+    1.02,
+    1.02
+  );
+
+const outlineMaterial =
+  new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    wireframe: true
+  });
+
+const outline =
+  new THREE.Mesh(
+    outlineGeometry,
+    outlineMaterial
+  );
+
+outline.visible =
+  false;
+
+scene.add(outline);
+
+
+// =====================================================
+// FIND TARGET BLOCK
+// =====================================================
+
+function getTargetBlock() {
+
+  raycaster.setFromCamera(
+    new THREE.Vector2(0, 0),
+    camera
+  );
+
+  const hits =
+    raycaster.intersectObjects(
+      world
+    );
+
+  if (
+    hits.length === 0
+  ) {
+
+    return null;
+
+  }
+
+  if (
+    hits[0].distance > 6
+  ) {
+
+    return null;
+
+  }
+
+  return hits[0];
+
+}
+
+
+// =====================================================
+// UPDATE OUTLINE
+// =====================================================
+
+function updateOutline() {
+
+  const hit =
+    getTargetBlock();
+
+  if (!hit) {
+
+    outline.visible =
+      false;
+
+    return;
+
+  }
+
+  outline.visible =
+    true;
+
+  outline.position.copy(
+    hit.object.position
+  );
+
+}
+
+
+// =====================================================
+// SELECTED BLOCK
+// =====================================================
+
+let selectedBlock =
+  "grass";
+
+
+function selectBlock(
+  number
+) {
+
+  const types = {
+
+    1: "grass",
+    2: "dirt",
+    3: "stone",
+    4: "wood"
+
+  };
+
+  selectedBlock =
+    types[number];
+
+
+  document
+    .querySelectorAll(".slot")
+    .forEach(
+      slot => {
+
+        slot.classList.remove(
+          "selected"
+        );
+
+      }
+    );
+
+
+  const selected =
+    document.querySelector(
+      `[data-slot="${number}"]`
+    );
+
+  if (selected) {
+
+    selected.classList.add(
+      "selected"
+    );
+
+  }
+
+}
+
+
+// =====================================================
+// BREAK BLOCK
+// =====================================================
+
+function breakBlock() {
+
+  const hit =
+    getTargetBlock();
+
+  if (!hit) {
+
+    return;
+
+  }
+
+  const block =
+    hit.object;
+
+
+  // Don't remove blocks too far below the world
+
+  if (
+    block.position.y < -2
+  ) {
+
+    return;
+
+  }
+
+
+  scene.remove(
+    block
+  );
+
+
+  const index =
+    world.indexOf(block);
+
+  if (index !== -1) {
+
+    world.splice(
+      index,
+      1
+    );
+
+  }
+
+}
+
+
+// =====================================================
+// PLACE BLOCK
+// =====================================================
+
+function placeBlock() {
+
+  const hit =
+    getTargetBlock();
+
+  if (!hit) {
+
+    return;
+
+  }
+
+
+  const block =
+    hit.object;
+
+
+  const normal =
+    hit.face.normal.clone();
+
+
+  const position =
+    block.position.clone();
+
+
+  position.add(
+    normal
+  );
+
+
+  // Don't place inside player
+
+  const playerBox =
+    new THREE.Box3().setFromCenterAndSize(
+      player.position,
+      new THREE.Vector3(
+        0.8,
+        1.8,
+        0.8
+      )
+    );
+
+
+  const newBox =
+    new THREE.Box3().setFromCenterAndSize(
+      position,
+      new THREE.Vector3(
+        1,
+        1,
+        1
+      )
+    );
+
+
+  if (
+    playerBox.intersectsBox(
+      newBox
+    )
+  ) {
+
+    return;
+
+  }
+
+
+  // Don't duplicate blocks
+
+  for (
+    const existing of world
+  ) {
+
+    if (
+      existing.position.equals(
+        position
+      )
+    ) {
+
+      return;
+
+    }
+
+  }
+
+
+  addBlock(
+    position.x,
+    position.y,
+    position.z,
+    selectedBlock
+  );
+
+}
+
+
+// =====================================================
+// MOUSE BUTTONS
+// =====================================================
+
+document.addEventListener(
+  "mousedown",
+  event => {
+
+    if (
+      document.pointerLockElement !==
+      document.body
+    ) {
+
+      return;
+
+    }
+
+
+    // Left mouse
+
+    if (
+      event.button === 0
+    ) {
+
+      breakBlock();
+
+    }
+
+
+    // Right mouse
+
+    if (
+      event.button === 2
+    ) {
+
+      placeBlock();
+
+    }
+
+  }
+);
+
+
+// Prevent right-click menu
+
+document.addEventListener(
+  "contextmenu",
+  event => {
+
+    event.preventDefault();
+
+  }
+);
+
+
+// =====================================================
+// GAME LOOP
+// =====================================================
+
+const clock =
+  new THREE.Clock();
+
+
+function animate() {
+
+  requestAnimationFrame(
+    animate
+  );
+
+
+  const delta =
+    Math.min(
+      clock.getDelta(),
+      0.05
+    );
+
+
+  // -----------------------------
+  // MOVEMENT
+  // -----------------------------
+
+  const direction =
+    new THREE.Vector3();
+
+
+  if (keys["KeyW"])
+    direction.z -= 1;
+
+  if (keys["KeyS"])
+    direction.z += 1;
+
+  if (keys["KeyA"])
+    direction.x -= 1;
+
+  if (keys["KeyD"])
+    direction.x += 1;
+
+
+  if (
+    direction.length() > 0
+  ) {
+
+    direction.normalize();
+
+
+    direction.applyAxisAngle(
+      new THREE.Vector3(
+        0,
+        1,
+        0
+      ),
+      yaw
+    );
+
+
+    player.position.x +=
+      direction.x *
+      player.speed *
+      delta;
+
+
+    player.position.z +=
+      direction.z *
+      player.speed *
+      delta;
+
+  }
+
+
+  // -----------------------------
+  // GRAVITY
+  // -----------------------------
+
+  player.velocity.y -=
+    20 * delta;
+
+
+  player.position.y +=
+    player.velocity.y *
+    delta;
+
+
+  // -----------------------------
+  // GROUND
+  // -----------------------------
+
+  if (
+    player.position.y < 2
+  ) {
+
+    player.position.y = 2;
+
+    player.velocity.y = 0;
+
+    player.onGround = true;
+
+  }
+
+
+  // -----------------------------
+  // CAMERA
+  // -----------------------------
+
+  camera.position.copy(
+    player.position
+  );
+
+
+  camera.rotation.order =
+    "YXZ";
+
+
+  camera.rotation.y =
+    yaw;
+
+
+  camera.rotation.x =
+    pitch;
+
+
+  // -----------------------------
+  // BLOCK OUTLINE
+  // -----------------------------
+
+  updateOutline();
+
+
+  // -----------------------------
+  // RENDER
+  // -----------------------------
+
+  renderer.render(
+    scene,
+    camera
+  );
+
+}
+
+
+// Start game
+
+animate();
+
+
+// =====================================================
+// RESIZE
+// =====================================================
+
+window.addEventListener(
+  "resize",
+  () => {
+
+    camera.aspect =
+      window.innerWidth /
+      window.innerHeight;
+
+
+    camera.updateProjectionMatrix();
+
+
+    renderer.setSize(
+      window.innerWidth,
+      window.innerHeight
+    );
+
+  }
+);
+
+</script>
+
+</body>
+</html>

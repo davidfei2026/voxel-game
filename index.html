@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voxel World V1</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #87ceeb;
+      font-family: Arial, sans-serif;
+    }
+
+    #game {
+      width: 100%;
+      height: 100%;
+    }
+
+    #crosshair {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 26px;
+      font-weight: bold;
+      text-shadow: 0 0 4px black;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #info {
+      position: fixed;
+      top: 15px;
+      left: 15px;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.55);
+      color: white;
+      border-radius: 8px;
+      z-index: 10;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="game"></div>
+
+  <div id="crosshair">+</div>
+
+  <div id="info">
+    Click the screen to play<br>
+    WASD = Move<br>
+    Space = Jump
+  </div>
+
+  <script type="module">
+
+    import * as THREE from
+      "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js";
+
+    // -------------------------
+    // SCENE
+    // -------------------------
+
+    const scene = new THREE.Scene();
+
+    scene.background = new THREE.Color(0x87ceeb);
+
+    // -------------------------
+    // CAMERA
+    // -------------------------
+
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
+
+    camera.position.set(0, 5, 8);
+
+    // -------------------------
+    // RENDERER
+    // -------------------------
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true
+    });
+
+    renderer.setSize(
+      window.innerWidth,
+      window.innerHeight
+    );
+
+    renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, 2)
+    );
+
+    document
+      .getElementById("game")
+      .appendChild(renderer.domElement);
+
+    // -------------------------
+    // LIGHTING
+    // -------------------------
+
+    const sunlight = new THREE.DirectionalLight(
+      0xffffff,
+      2
+    );
+
+    sunlight.position.set(10, 20, 10);
+
+    scene.add(sunlight);
+
+    const ambientLight = new THREE.AmbientLight(
+      0xffffff,
+      0.6
+    );
+
+    scene.add(ambientLight);
+
+    // -------------------------
+    // BLOCK MATERIALS
+    // -------------------------
+
+    const grassMaterial =
+      new THREE.MeshLambertMaterial({
+        color: 0x4caf50
+      });
+
+    const dirtMaterial =
+      new THREE.MeshLambertMaterial({
+        color: 0x8b5a2b
+      });
+
+    const stoneMaterial =
+      new THREE.MeshLambertMaterial({
+        color: 0x777777
+      });
+
+    // -------------------------
+    // BLOCK GEOMETRY
+    // -------------------------
+
+    const blockGeometry =
+      new THREE.BoxGeometry(1, 1, 1);
+
+    // -------------------------
+    // WORLD
+    // -------------------------
+
+    const world = [];
+
+    function addBlock(x, y, z, material) {
+
+      const block =
+        new THREE.Mesh(
+          blockGeometry,
+          material
+        );
+
+      block.position.set(x, y, z);
+
+      scene.add(block);
+
+      world.push(block);
+    }
+
+    // -------------------------
+    // CREATE GROUND
+    // -------------------------
+
+    for (let x = -10; x <= 10; x++) {
+
+      for (let z = -10; z <= 10; z++) {
+
+        addBlock(
+          x,
+          0,
+          z,
+          grassMaterial
+        );
+
+        addBlock(
+          x,
+          -1,
+          z,
+          dirtMaterial
+        );
+
+        addBlock(
+          x,
+          -2,
+          z,
+          stoneMaterial
+        );
+
+      }
+
+    }
+
+    // -------------------------
+    // TREES
+    // -------------------------
+
+    const woodMaterial =
+      new THREE.MeshLambertMaterial({
+        color: 0x8b4513
+      });
+
+    const leafMaterial =
+      new THREE.MeshLambertMaterial({
+        color: 0x228b22
+      });
+
+    function createTree(x, z) {
+
+      for (let y = 1; y <= 4; y++) {
+
+        addBlock(
+          x,
+          y,
+          z,
+          woodMaterial
+        );
+
+      }
+
+      for (let x2 = -1; x2 <= 1; x2++) {
+
+        for (let z2 = -1; z2 <= 1; z2++) {
+
+          addBlock(
+            x + x2,
+            5,
+            z + z2,
+            leafMaterial
+          );
+
+        }
+
+      }
+
+    }
+
+    createTree(-5, -4);
+    createTree(5, -5);
+    createTree(4, 5);
+
+    // -------------------------
+    // PLAYER
+    // -------------------------
+
+    const player = {
+      position: new THREE.Vector3(0, 2, 5),
+      velocity: new THREE.Vector3(),
+      speed: 5,
+      jumpPower: 8,
+      onGround: false
+    };
+
+    camera.position.copy(player.position);
+
+    // -------------------------
+    // KEYBOARD
+    // -------------------------
+
+    const keys = {};
+
+    window.addEventListener(
+      "keydown",
+      event => {
+
+        keys[event.code] = true;
+
+        if (
+          event.code === "Space" &&
+          player.onGround
+        ) {
+
+          player.velocity.y =
+            player.jumpPower;
+
+          player.onGround = false;
+
+        }
+
+      }
+    );
+
+    window.addEventListener(
+      "keyup",
+      event => {
+
+        keys[event.code] = false;
+
+      }
+    );
+
+    // -------------------------
+    // MOUSE LOOK
+    // -------------------------
+
+    let yaw = 0;
+    let pitch = 0;
+
+    document.body.addEventListener(
+      "click",
+      () => {
+
+        document.body.requestPointerLock();
+
+      }
+    );
+
+    document.addEventListener(
+      "mousemove",
+      event => {
+
+        if (
+          document.pointerLockElement !==
+          document.body
+        ) {
+          return;
+        }
+
+        yaw -= event.movementX * 0.002;
+        pitch -= event.movementY * 0.002;
+
+        pitch = Math.max(
+          -Math.PI / 2,
+          Math.min(Math.PI / 2, pitch)
+        );
+
+      }
+    );
+
+    // -------------------------
+    // GAME LOOP
+    // -------------------------
+
+    const clock =
+      new THREE.Clock();
+
+    function animate() {
+
+      requestAnimationFrame(animate);
+
+      const delta =
+        Math.min(clock.getDelta(), 0.05);
+
+      // Movement
+
+      const direction =
+        new THREE.Vector3();
+
+      if (keys["KeyW"])
+        direction.z -= 1;
+
+      if (keys["KeyS"])
+        direction.z += 1;
+
+      if (keys["KeyA"])
+        direction.x -= 1;
+
+      if (keys["KeyD"])
+        direction.x += 1;
+
+      if (direction.length() > 0) {
+
+        direction.normalize();
+
+        direction.applyAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          yaw
+        );
+
+        player.position.x +=
+          direction.x *
+          player.speed *
+          delta;
+
+        player.position.z +=
+          direction.z *
+          player.speed *
+          delta;
+
+      }
+
+      // Gravity
+
+      player.velocity.y -=
+        20 * delta;
+
+      player.position.y +=
+        player.velocity.y *
+        delta;
+
+      // Simple ground collision
+
+      if (player.position.y < 2) {
+
+        player.position.y = 2;
+
+        player.velocity.y = 0;
+
+        player.onGround = true;
+
+      }
+
+      // Camera
+
+      camera.position.copy(
+        player.position
+      );
+
+      camera.rotation.order =
+        "YXZ";
+
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+
+      renderer.render(
+        scene,
+        camera
+      );
+
+    }
+
+    animate();
+
+    // -------------------------
+    // RESIZE
+    // -------------------------
+
+    window.addEventListener(
+      "resize",
+      () => {
+
+        camera.aspect =
+          window.innerWidth /
+          window.innerHeight;
+
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(
+          window.innerWidth,
+          window.innerHeight
+        );
+
+      }
+    );
+
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Voxel Engine from Scratch</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #87CEEB; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        // --- STEP 1: INITIALIZE THE 3D WINDOW ---
+        const canvas = document.getElementById('gameCanvas');
+        const gl = canvas.getContext('webgl');
+
+        if (!gl) {
+            alert('WebGL not supported by your browser!');
+        }
+
+        // Resize canvas to fill the screen
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- STEP 2: SHADERS (GPU Programs) ---
+        // Vertex Shader: Positions the 3D points
+        const vsSource = `
+            attribute vec4 aPosition;
+            attribute vec4 aColor;
+            varying lowp vec4 vColor;
+            uniform mat4 uModelViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            void main() {
+                gl_Position = uProjectionMatrix * uModelViewMatrix * aPosition;
+                vColor = aColor;
+            }
+        `;
+
+        // Fragment Shader: Colors the pixels
+        const fsSource = `
+            varying lowp vec4 vColor;
+            void main() {
+                gl_FragColor = vColor;
+            }
+        `;
+
+        // Helper function to compile shaders
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+
+        const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+        const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+        const shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+        gl.useProgram(shaderProgram);
+
+        // Get links to the shader variables
+        const programInfo = {
+            attribLocations: {
+                position: gl.getAttribLocation(shaderProgram, 'aPosition'),
+                color: gl.getAttribLocation(shaderProgram, 'aColor'),
+            },
+            uniformLocations: {
+                projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
+                modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+            },
+        };
+
+        // --- STEP 3: DEFINE CUBE GEOMETRY (X, Y, Z) ---
+        const positions = [
+            // Front face
+            -0.5, -0.5,  0.5,   0.5, -0.5,  0.5,   0.5,  0.5,  0.5,  -0.5,  0.5,  0.5,
+            // Back face
+            -0.5, -0.5, -0.5,  -0.5,  0.5, -0.5,   0.5,  0.5, -0.5,   0.5, -0.5, -0.5,
+            // Top face
+            -0.5,  0.5, -0.5,  -0.5,  0.5,  0.5,   0.5,  0.5,  0.5,   0.5,  0.5, -0.5,
+            // Bottom face
+            -0.5, -0.5, -0.5,   0.5, -0.5, -0.5,   0.5, -0.5,  0.5,  -0.5, -0.5,  0.5,
+            // Right face
+             0.5, -0.5, -0.5,   0.5,  0.5, -0.5,   0.5,  0.5,  0.5,   0.5, -0.5,  0.5,
+            // Left face
+            -0.5, -0.5, -0.5,  -0.5, -0.5,  0.5,  -0.5,  0.5,  0.5,  -0.5,  0.5, -0.5,
+        ];
+
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+        // Define distinct colors for each face (Minecraft Grass/Dirt style colors)
+        const faceColors = [
+            [0.4, 0.2, 0.0, 1.0],    // Front: Dirt (Brown)
+            [0.4, 0.2, 0.0, 1.0],    // Back: Dirt (Brown)
+            [0.2, 0.8, 0.2, 1.0],    // Top: Grass (Green)
+            [0.3, 0.15, 0.0, 1.0],   // Bottom: Deep Dirt (Dark Brown)
+            [0.4, 0.2, 0.0, 1.0],    // Right: Dirt (Brown)
+            [0.4, 0.2, 0.0, 1.0],    // Left: Dirt (Brown)
+        ];
+
+        let colors = [];
+        for (let j = 0; j < faceColors.length; ++j) {
+            const c = faceColors[j];
+            colors = colors.concat(c, c, c, c); // 4 vertices per face
+        }
+
+        const colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+
+        // Map triangles to the square faces
+        const indices = [
+            0,  1,  2,      0,  2,  3,    // front
+            4,  5,  6,      4,  6,  7,    // back
+            8,  9,  10,     8,  10, 11,   // top
+            12, 13, 14,     12, 14, 15,   // bottom
+            16, 17, 18,     16, 18, 19,   // right
+            20, 21, 22,     20, 22, 23,   // left
+        ];
+
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+        // --- STEP 4: BASIC 3D MATH MATRICES ---
+        // Simple perspective projection matrix helper
+        function makePerspective(fieldOfViewInRadians, aspect, near, far) {
+            const f = Math.tan(Math.PI * 0.5 - 0.25 * fieldOfViewInRadians);
+            const rangeInv = 1.0 / (near - far);
+            return [
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (near + far) * rangeInv, -1,
+                0, 0, near * far * rangeInv * 2, 0
+            ];
+        }
+
+        // --- STEP 5: THE GAME LOOP ---
+        let rotation = 0;
+
+        function render() {
+            // Clear screen and turn on 3D depth testing
+            gl.clearColor(0.53, 0.81, 0.92, 1.0); // Sky blue
+            gl.clearDepth(1.0);
+            gl.enable(gl.DEPTH_TEST);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            // Create Perspective Matrix
+            const projectionMatrix = makePerspective(45 * Math.PI / 180, canvas.width / canvas.height, 0.1, 100.0);
+
+            // Create Model-View Matrix (Moves the cube away and rotates it)
+            rotation += 0.01; // Spin speed
+            const c = Math.cos(rotation);
+            const s = Math.sin(rotation);
+            
+            // Combination matrix for camera placement and spin
+            const modelViewMatrix = [
+                c,   0,  -s,   0,
+                s*s, c,  c*s,  0,
+                c*s, -s, c*c,  0,
+                0,   0,  -3.0, 1  // Z = -3.0 pushes the block backward so we can see it
+            ];
+
+            // Bind positions
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(programInfo.attribLocations.position, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(programInfo.attribLocations.position);
+
+            // Bind colors
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.vertexAttribPointer(programInfo.attribLocations.color, 4, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(programInfo.attribLocations.color);
+
+            // Bind index map
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
+            // Send matrices to GPU
+            gl.uniformMatrix4fv(programInfo.uniformLocations.projectionMatrix, false, projectionMatrix);
+            gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix);
+
+            // Draw the cube
+            gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
+
+            // Call next frame
+            requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>

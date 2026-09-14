@@ -1,0 +1,60 @@
+body, html {
+    margin: 0; padding: 0; overflow: hidden;
+    width: 100vw; height: 100vh;
+    background: #1a1a24;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    user-select: none;
+}
+#crosshair {
+    position: absolute; top: 50%; left: 50%;
+    width: 16px; height: 16px;
+    transform: translate(-50%, -50%);
+    pointer-events: none; z-index: 100;
+}
+#crosshair::before, #crosshair::after {
+    content: ''; position: absolute; background: rgba(255,255,255,0.85);
+}
+#crosshair::before { top: 7px; left: 0; width: 16px; height: 2px; }
+#crosshair::after { top: 0; left: 7px; width: 2px; height: 16px; }
+
+#hud-container {
+    position: absolute; top: 20px; left: 20px;
+    background: rgba(10, 10, 15, 0.75);
+    color: #f0f0f5; padding: 15px 20px;
+    border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
+    pointer-events: none; backdrop-filter: blur(4px);
+    font-size: 13px; line-height: 1.6; z-index: 50;
+}
+#hud-container h1 { margin: 0 0 5px 0; font-size: 16px; color: #55ff55; }
+
+/* Hotbar Setup Styles */
+#hotbar {
+    position: absolute; bottom: 25px; left: 50%;
+    transform: translateX(-50%); display: flex;
+    background: rgba(20, 20, 25, 0.85);
+    padding: 6px; border-radius: 6px;
+    border: 3px solid #4a4a5a; z-index: 50;
+}
+.slot {
+    width: 52px; height: 52px; margin: 0 4px;
+    background: rgba(0, 0, 0, 0.4); border: 3px solid #333;
+    position: relative; display: flex; align-items: center;
+    justify-content: center; border-radius: 4px; cursor: pointer;
+}
+.slot.active {
+    border-color: #ffffff; background: rgba(255,255,255,0.15);
+    box-shadow: 0 0 12px rgba(255,255,255,0.4);
+}
+.badge {
+    position: absolute; top: 2px; left: 4px;
+    font-size: 10px; color: #888; font-weight: bold;
+}
+.cube {
+    width: 26px; height: 26px; border-radius: 2px;
+}
+/* Color profiles mapping structural entities */
+.cube.grass { background: #557a2b; }
+.cube.dirt { background: #866043; }
+.cube.stone { background: #737373; }
+.cube.wood { background: #a07040; }
+.cube.leaves { background: #3a5f25; }
